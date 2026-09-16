@@ -1,0 +1,9 @@
+{
+  "name": "degenerate-geometry-workbench",
+  "version": "1.0.0",
+  "description": "退化几何作图验算台：原生 HTML/CSS/JS/SVG + Web Worker，断网可运行",
+  "private": true,
+  "scripts": {
+    "test": "node tests/test_kernel.js && node tests/test_worker.js"
+  }
+}

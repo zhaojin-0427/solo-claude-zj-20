@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>退化几何作图验算台</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">
+    <span class="logo">📐</span>
+    <div>
+      <h1>退化几何作图验算台</h1>
+      <p class="subtitle">点 · 直线 · 圆 · 交点 · 约束 —— 拖动、验算、看清“退化”的每一步</p>
+    </div>
+  </div>
+  <div class="top-actions">
+    <button id="btn-undo" title="撤销 (Ctrl+Z)">↶ 撤销</button>
+    <button id="btn-save">💾 保存 JSON</button>
+    <button id="btn-load">📂 导入 JSON</button>
+    <input type="file" id="file-input" accept=".json,application/json" hidden>
+    <button id="btn-example">📖 载入示例</button>
+    <button id="btn-help">❓ 判定规则</button>
+    <button id="btn-clear" class="danger-text">清空</button>
+  </div>
+</header>
+
+<div class="workspace">
+  <!-- 左栏：工具 + 图元列表 -->
+  <aside class="panel left">
+    <section>
+      <h2>添加图元</h2>
+      <div class="tool-grid">
+        <button data-tool="point" title="在空白处单击放置自由点">· 自由点</button>
+        <button data-tool="pointOn" title="先画好直线或圆，再在其上取点">◦ 约束点(在线/圆上)</button>
+        <button data-tool="line2" title="依次选两个点">直线(两点)</button>
+        <button data-tool="linePar" title="先选点，再选参考直线">平行线(过点)</button>
+        <button data-tool="linePerp" title="先选点，再选参考直线">垂线(过点)</button>
+        <button data-tool="circle" title="先选圆心，再选圆上一点">圆(圆心+半径点)</button>
+        <button data-tool="mid" title="依次选两个点">中点</button>
+        <button data-tool="inter" title="选两条直线 / 直线与圆 / 两圆">交点</button>
+      </div>
+    </section>
+    <section>
+      <h2>添加待证关系</h2>
+      <div class="tool-grid">
+        <button data-goal="lenEq" title="依次选 A B C D 四点，证 AB=CD">AB = CD</button>
+        <button data-goal="angEq" title="依次选 A B C D E F，证 ∠ABC=∠DEF">∠ABC = ∠DEF</button>
+        <button data-goal="parallel">两直线平行</button>
+        <button data-goal="perpendicular">两直线垂直</button>
+        <button data-goal="tangentLC">直线与圆相切</button>
+        <button data-goal="tangentCC">两圆相切</button>
+        <button data-goal="onLine">点在直线上</button>
+        <button data-goal="onCircle">点在圆上</button>
+      </div>
+    </section>
+    <section class="obj-list-section">
+      <h2>作图链 <span id="obj-count" class="count"></span></h2>
+      <ul id="obj-list" class="obj-list"></ul>
+    </section>
+  </aside>
+
+  <!-- 中间画布 -->
+  <main class="canvas-wrap">
+    <div id="mode-banner" class="mode-banner hidden">
+      <span id="mode-text"></span>
+      <button id="mode-cancel" class="mini">取消 (Esc)</button>
+    </div>
+    <svg id="canvas" xmlns="http://www.w3.org/2000/svg">
+      <g id="scene"></g>
+    </svg>
+    <div class="canvas-hint">
+      <span id="status-text">就绪：从左侧添加图元，或直接在空白处单击添加自由点。拖动自由点实时重算；滚轮缩放，拖空白处平移。</span>
+      <span class="rev-info"><span id="rev-info"></span> <span id="kernel-info"></span></span>
+    </div>
+  </main>
+
+  <!-- 右栏：待证关系与逐步解释 -->
+  <aside class="panel right">
+    <section>
+      <h2>待证关系 <span id="goal-count" class="count"></span></h2>
+      <ul id="goal-list" class="goal-list"></ul>
+    </section>
+    <section class="steps-section">
+      <h2>逐步解释</h2>
+      <div id="steps-box" class="steps-box">
+        <p class="muted">单击上方任一待证关系，这里会按依赖顺序展示每一步的计算与判定：哪些对象正常、哪里因平行 / 相切 / 重合 / 无交点而变为未定义。</p>
+      </div>
+    </section>
+  </aside>
+</div>
+
+<!-- 级联删除确认框 -->
+<div id="modal-delete" class="modal-mask hidden">
+  <div class="modal">
+    <h2>⚠️ 删除将引发级联影响</h2>
+    <p id="delete-lead"></p>
+    <div id="delete-cascade" class="cascade-box"></div>
+    <p class="muted">此删除为<strong>一个原子事务</strong>，删除后可用“撤销”整体回滚，恢复完整依赖图。</p>
+    <div class="modal-actions">
+      <button id="delete-cancel">取消</button>
+      <button id="delete-confirm" class="danger">确认整体删除</button>
+    </div>
+  </div>
+</div>
+
+<!-- 规则说明 -->
+<div id="modal-help" class="modal-mask hidden">
+  <div class="modal wide">
+    <h2>判定规则：浮点容差与“真的成立”如何取舍</h2>
+    <div class="help-body">
+      <p>几何计算使用浮点数，但本验算台<strong>不会把“看起来差不多”判成“成立”</strong>。设图形整体尺度
+        <code>S</code>（所有自由点包围盒对角线，退化时取 1），采用<strong>双阈值 + 构造保证</strong>三条轨道：</p>
+      <ol>
+        <li><strong>严格容差带</strong>：<code>ε = 10⁻⁹·S</code>（角度用 10⁻⁹ 弧度，因为方向已单位化）。
+          只有差值落入此带，数值判定才可能为“成立 / 重合 / 为零”，并标注为<em>数值判定</em>。</li>
+        <li><strong>接近提示带</strong>：<code>10⁻⁹·S ~ 10⁻⁶·S</code>。落入此带<strong>绝不判为成立</strong>，
+          结论是“不成立（接近）”或“接近退化”，并给出具体差值，由学生自己判断。</li>
+        <li><strong>由构造保证</strong>：若关系是作图定义本身决定的（平行线工具复制方向向量、同圆半径、
+          中点平分线段、反向角 ∠ABC=∠CBA、过半径端点作半径垂线得切线），直接标注<em>由构造保证</em>，
+          不依赖浮点比较。</li>
+      </ol>
+      <p class="degen-title">退化情形的三值结论（成立 / 不成立 / 未定义）：</p>
+      <ul>
+        <li><b>平行（不同线）</b>：两直线无交点 → 交点对象<b>未定义</b>，依赖它的后继与待证关系逐级标为未定义。</li>
+        <li><b>重合</b>：两直线重合有无穷多个交点；两圆重合有无穷交点 → 对应交点<b>未定义</b>。</li>
+        <li><b>相切</b>：直线与圆 / 两圆恰有一个交点，两个交点候选重合为同一点（解释中明确给出）。</li>
+        <li><b>无交点</b>：直线离圆太远、一圆在另一圆内、同心圆半径不同 → 交点<b>未定义</b>。</li>
+        <li>零线段（两点重合）、约束点落在圆心等，同样使后继<b>未定义</b>。</li>
+      </ul>
+      <p class="muted">待证关系在创建时绑定<strong>构造版本号</strong>（只取决于图元类型与连接关系，与坐标、缩放、
+        图元排列顺序无关）。结构改变后旧关系标为“版本失配”，不会被拿去对照新构造，须人工重新绑定。</p>
+    </div>
+    <div class="modal-actions">
+      <button id="help-close">明白了</button>
+    </div>
+  </div>
+</div>
+
+<!-- 通用提示 -->
+<div id="toast" class="toast hidden"></div>
+
+<script src="js/kernel.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
